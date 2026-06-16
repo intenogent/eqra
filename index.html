@@ -126,14 +126,29 @@
     const geoBtn = document.getElementById('geo-btn');
 
     geoBtn.addEventListener('click', () => {
-      if (!navigator.geolocation) return;
+      if (!navigator.geolocation) {
+        errorBox.textContent = 'Geolocation is not supported by your browser.';
+        errorBox.hidden = false;
+        return;
+      }
+      const origLabel = geoBtn.textContent;
+      geoBtn.textContent = '…';
+      geoBtn.disabled = true;
       navigator.geolocation.getCurrentPosition(
         ({ coords }) => {
           const loc = `${coords.latitude.toFixed(4)},${coords.longitude.toFixed(4)}`;
           const val = input.value.trim();
           input.value = val ? `${val} ${loc}` : loc;
+          geoBtn.textContent = origLabel;
+          geoBtn.disabled = false;
         },
-        () => {}
+        () => {
+          errorBox.textContent = 'Location access denied or unavailable. Enable location in your browser settings, or type your location manually.';
+          errorBox.hidden = false;
+          geoBtn.textContent = origLabel;
+          geoBtn.disabled = false;
+        },
+        { timeout: 10000, enableHighAccuracy: false }
       );
     });
 
