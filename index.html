@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <title>eQRA — Field Card</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main>
+    <div class="header-row">
+      <h1>eQRA Field Card</h1>
+      <span class="badge">Open Beta · Field Test</span>
+    </div>
+
+    <p class="subtitle">AI-powered ham radio field data — repeaters, operators & clubs</p>
+
+    <div id="rate-banner" class="rate-banner">
+      <span id="rate-text">3 lookups remaining today</span>
+    </div>
+
+    <form id="search-form">
+      <input
+        id="query-input"
+        type="text"
+        placeholder="Enter call sign, location, or frequency…"
+        autocomplete="off"
+        required
+      />
+      <button type="button" id="geo-btn" title="Use my location">◎</button>
+      <button type="submit" id="submit-btn">Look Up Station</button>
+    </form>
+
+    <p class="search-hint">Frequency + location queries scan all repeaters within a 50-mile radius — tap ◎ to use your current location.</p>
+
+    <div id="loading" hidden>
+      <span class="spinner"></span> Searching…
+    </div>
+
+    <div id="error" hidden></div>
+
+    <div id="results"></div>
+  </main>
+
+  <footer>
+    <span>Built by <strong>KO6JES</strong></span>
+    <span class="footer-sep">·</span>
+    <a href="https://github.com/intenogent/eqra" target="_blank" rel="noopener">
+      Open Source · View on GitHub ↗
+    </a>
+    <p class="footer-disclaimer">eQRA is a vibe coding experiment — built by KO6JES with Claude Code to showcase AI-assisted ham radio tooling. Results are AI-generated and may be incomplete. For critical operations, verify with RepeaterBook.com or your regional frequency coordinator. This system is designed to grow.</p>
+  </footer>
+
+  <script>
+    // ── Rate limiting ────────────────────────────────────────────
+    let DAILY_LIMIT = 1;
+    const STORAGE_KEY = 'eqra_usage';
+
+    function getUsage() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return { count: 0, date: today() };
+        const data = JSON.parse(raw);
+        if (data.date !== today()) return { count: 0, date: today() };
+        return data;
+      } catch {
+        return { count: 0, date: today() };
+      }
+    }
+
+    function saveUsage(count) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ count, date: today() }));
+    }
+
+    function today() {
+      return new Date().toISOString().slice(0, 10);
+    }
+
+    function remaining() {
+      return Math.max(0, DAILY_LIMIT - getUsage().count);
+    }
+
+    function updateRateBanner() {
+      const left = remaining();
+      const text = document.getElementById('rate-text');
+      const banner = document.getElementById('rate-banner');
+      const btn = document.getElementById('submit-btn');
+      const input = document.getElementById('query-input');
+
+      if (left === 0) {
+        text.textContent = 'Daily limit reached — resets at midnight. 73!';
+        banner.classList.add('rate-banner--empty');
+        btn.classList.add('btn--limit');
+        btn.textContent = 'Limit Reached';
+        btn.disabled = true;
+        input.disabled = true;
+      } else {
+        text.textContent = `Limited free access — ${DAILY_LIMIT} lookup${DAILY_LIMIT === 1 ? '' : 's'} per day`;
+        banner.classList.remove('rate-banner--empty');
+        btn.classList.remove('btn--limit');
+        btn.textContent = 'Look Up Station';
+        input.disabled = false;
+      }
+    }
+
+    // ── UI helpers ───────────────────────────────────────────────
+    function resetUI(skipBanner = false) {
+      const loading = document.getElementById('loading');
+      const submitBtn = document.getElementById('submit-btn');
+      loading.hidden = true;
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Look Up Station';
+      if (!skipBanner) updateRateBanner();
+    }
+
+    // ── Search form ──────────────────────────────────────────────
+    const form = document.getElementById('search-form');
+    const input = document.getElementById('query-input');
+    const loading = document.getElementById('loading');
+    const errorBox = document.getElementById('error');
+    const results = document.getElementById('results');
+    const submitBtn = document.getElementById('submit-btn');
+    const geoBtn = document.getElementById('geo-btn');
+
+    geoBtn.addEventListener('click', () => {
+      if (!navigator.geolocation) return;
+      navigator.geolocation.getCurrentPosition(
+        ({ coords }) => {
+          const loc = `${coords.latitude.toFixed(4)},${coords.longitude.toFixed(4)}`;
+          const val = input.value.trim();
+          input.value = val ? `${val} ${loc}` : loc;
+        },
+        () => {}
+      );
+    });
+
+    let timeoutHandle = null;
+
+    updateRateBanner();
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const query = input.value.trim();
+      if (!query) return;
+      if (remaining() === 0) return;
+
+      // Reset UI state
+      clearTimeout(timeoutHandle);
+      errorBox.hidden = true;
+      errorBox.textContent = '';
+      results.innerHTML = '';
+      loading.hidden = false;
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Searching…';
+
+      // 120s timeout fallback — production cold start + RB fetches + Gemini can exceed 90s
+      let timedOut = false;
+      timeoutHandle = setTimeout(() => {
+        timedOut = true;
+        resetUI();
+        errorBox.textContent = 'Search timed out — the server took too long. Please try again.';
+        errorBox.hidden = false;
+      }, 120000);
+
+      let wasBypassed = false;
+
+      try {
+        const res = await fetch('/api/lookup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query }),
+        });
+
+        clearTimeout(timeoutHandle);
+        if (timedOut) return;
+
+        const data = await res.json().catch(() => ({}));
+
+        if (!res.ok) {
+          throw new Error(data.error || `Server error ${res.status}`);
+        }
+
+        const { stations, bypassed, dailyLimit } = data;
+
+        if (dailyLimit) DAILY_LIMIT = dailyLimit;
+
+        if (!stations || stations.length === 0) {
+          errorBox.textContent = 'No stations found for that query. Try a different callsign or location.';
+          errorBox.hidden = false;
+          return;
+        }
+
+        if (bypassed) {
+          document.getElementById('rate-banner').hidden = true;
+          wasBypassed = true;
+        } else {
+          const usage = getUsage();
+          saveUsage(usage.count + 1);
+        }
+
+        stations.forEach((text) => {
+          const card = document.createElement('div');
+          card.className = 'station-card';
+
+          let scopeText = null;
+          let stationText = text;
+
+          if (text.startsWith('[Search:')) {
+            const bracketEnd = text.indexOf(']');
+            if (bracketEnd !== -1) {
+              scopeText = text.slice(1, bracketEnd);
+              stationText = text.slice(bracketEnd + 1).replace(/^\s*\n+/, '');
+            }
+          }
+
+          if (scopeText) {
+            const scopeDiv = document.createElement('div');
+            scopeDiv.className = 'scope-header';
+            scopeDiv.textContent = scopeText;
+            card.appendChild(scopeDiv);
+          }
+
+          const copyBtn = document.createElement('button');
+          copyBtn.className = 'copy-btn';
+          copyBtn.textContent = 'Copy';
+          copyBtn.addEventListener('click', () => {
+            navigator.clipboard.writeText(stationText).then(() => {
+              copyBtn.textContent = 'Copied!';
+              setTimeout(() => { copyBtn.textContent = 'Copy'; }, 2000);
+            });
+          });
+
+          const pre = document.createElement('pre');
+          pre.textContent = stationText;
+
+          card.appendChild(copyBtn);
+          card.appendChild(pre);
+          results.appendChild(card);
+        });
+
+      } catch (err) {
+        clearTimeout(timeoutHandle);
+        errorBox.textContent = err.message || 'An unexpected error occurred.';
+        errorBox.hidden = false;
+      } finally {
+        resetUI(wasBypassed);
+      }
+    });
+  </script>
+</body>
+</html>
