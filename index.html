@@ -89,17 +89,13 @@
       const btn = document.getElementById('submit-btn');
       const input = document.getElementById('query-input');
 
-      // input and button are intentionally never disabled — bypass passphrase must be submittable at limit
+      // nothing is ever disabled — bypass passphrase must reach the server; server enforces the limit
       if (left === 0) {
-        text.textContent = 'Daily limit reached — resets at midnight. 73!';
+        text.textContent = 'Daily limit reached — prefix your search with your access code to continue. 73!';
         banner.classList.add('rate-banner--empty');
-        btn.classList.add('btn--limit');
-        btn.textContent = 'Limit Reached';
       } else {
         text.textContent = `Limited free access — ${DAILY_LIMIT} lookup${DAILY_LIMIT === 1 ? '' : 's'} per day`;
         banner.classList.remove('rate-banner--empty');
-        btn.classList.remove('btn--limit');
-        btn.textContent = 'Look Up Station';
       }
     }
 
@@ -183,7 +179,7 @@
         const res = await fetch('/api/lookup', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query }),
+          body: JSON.stringify({ query, limitReached: remaining() === 0 }),
         });
 
         clearTimeout(timeoutHandle);

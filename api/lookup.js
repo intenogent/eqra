@@ -354,7 +354,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { query } = req.body ?? {};
+  const { query, limitReached } = req.body ?? {};
   if (!query || typeof query !== 'string') {
     return res.status(400).json({ error: 'query is required' });
   }
@@ -368,6 +368,10 @@ export default async function handler(req, res) {
 
   if (!actualQuery) {
     return res.status(400).json({ error: 'query is required' });
+  }
+
+  if (limitReached && !isPrivileged) {
+    return res.status(429).json({ error: 'Daily search limit reached — only 1 free search per day is offered due to AI costs. Resets at midnight. 73!' });
   }
 
   try {
