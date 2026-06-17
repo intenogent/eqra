@@ -16,7 +16,7 @@ RX: [OUTPUT FREQ] MHz | TX: [INPUT FREQ] MHz | Offset: [OFFSET] MHz | Tone TX: [
 Bearing: [BEARING] | Coverage: [COVERAGE DESCRIPTION] | Coords: [LAT], [LON]
 
 VOIP PLATFORMS:
-EchoLink [NODE######]: [NODE # or NOT LISTED]
+EchoLink [NODE######]: [NODE # or NOT LISTED / REMOVED (reason + date)]
 AllStar [NODE#####]: [NODE # or NOT LISTED]
 WINS: [NODE # or NOT LISTED]
 Broadcastify: [URL or NOT LISTED]
@@ -42,7 +42,8 @@ Organization: [FULL ORG NAME]
 Website: [URL or NOT LISTED]
 Trustee: [NAME, CALLSIGN or NOT LISTED]
 
-Coverage Area: [GENERAL DESCRIPTION] - [DIRECTIONAL DETAILS IF KNOWN]
+Coverage Area: [GENERAL DESCRIPTION]
+- [DIRECTIONAL DETAILS IF KNOWN]
 
 Radio Nets: [LIST IF FOUND or NOT LISTED]
 
@@ -54,7 +55,16 @@ Broadcastify Streaming: [FEED DETAILS or NOT LISTED]
 EMERGENCY SERVICES
 ===================================================================
 
-Classification: [RACES / ARES / CERT / SKYWARN / AUXCOMM / MARS / EMCOMM / SA or NOT LISTED]
+Classification: [RACES / ARES / CERT / SKYWARN / AUXCOMM /
+                 MARS / EMCOMM / SA or NOT LISTED]
+  RACES    = Radio Amateur Civil Emergency Service (FCC/Gov)
+  ARES     = Amateur Radio Emergency Service (ARRL)
+  CERT     = Community Emergency Response Team (FEMA/Local)
+  SKYWARN  = Severe Weather Spotters (Nat'l Weather Service)
+  AUXCOMM  = Auxiliary Communications (FEMA/DHS)
+  MARS     = Military Auxiliary Radio System (Dept of Defense)
+  EMCOMM   = General Emergency Comms (unspecified affiliation)
+  SA       = Served Agency (ARES supporting Red Cross, etc.)
 
 Served Agency: [GOVERNMENT BODY / ORGANIZATION or NOT LISTED]
 Activation Authority: [WHO CAN ACTIVATE or NOT LISTED]
@@ -63,7 +73,10 @@ Emergency Callsign: [CALLSIGN or NOT LISTED]
 Emergency Simplex: [FREQUENCY MHz or NOT LISTED]
 Contact: [NAME, CALLSIGN, EMAIL or NOT LISTED]
 
-Special Notes: [or NOT LISTED]
+Special Notes: [EMERGENCY POWER / BACKUP COMMS /
+                ACTIVATION PROTOCOL / FUSION MODE /
+                ACCESS RESTRICTIONS / OTHER NOTES
+                or NOT LISTED]
 
 ===================================================================
 REFERENCE & NAMING
@@ -72,9 +85,33 @@ REFERENCE & NAMING
 Grid Square: [MAIDENHEAD GRID or NOT LISTED]
 RepeaterBook ID: [ID NUMBER or NOT LISTED]
 
-HT CHANNEL NAME: [PREFIX CALLSIGN]
-GAIA WAYPOINT NAME: [◉/★ PREFIX·CALLSIGN FREQ]
-GAIA FOLDER: [NETWORK NAME / COLOR]`;
+HT CHANNEL NAME: [PREFIX CALLSIGN]  e.g. AR N6WB
+GAIA WAYPOINT NAME: [◉/★ PREFIX·CALLSIGN FREQ]  e.g. ◉ AR·N6WB 146.880
+GAIA FOLDER: [NETWORK NAME / COLOR]  e.g. EARS Network — Blue
+
+---
+HT PREFIX CODES (7-char CHIRP limit):
+  RC  = RACES    — Radio Amateur Civil Emergency Service
+  AR  = ARES     — Amateur Radio Emergency Service (ARRL)
+  CT  = CERT     — Community Emergency Response Team
+  SK  = SKYWARN  — Severe Weather / Nat'l Weather Service
+  MR  = MARS     — Military Auxiliary Radio System
+  AX  = AUXCOMM  — Auxiliary Comms / FEMA/DHS
+  EM  = EMCOMM   — General/unspecified emergency
+  SA  = SERVED   — ARES serving Red Cross/Salvation Army etc.
+  EL  = EchoLink repeater
+  WN  = WIN System
+  Rpt = Standard repeater (no VoIP/emergency affiliation)
+  [##]= AllStar Hub # prefix  e.g. 54 = Hub 54697
+
+GAIA WAYPOINT ICONS:
+  ★  = Hub/root node
+  ◉  = Linked or member node
+
+GAIA NAMING FORMAT:
+  Hub node   : ★ [HUB#] [CALLSIGN]
+  Linked node: ◉ [HUB#]·[CALLSIGN] [FREQ]
+  Non-hub    : ◉ [PREFIX]·[CALLSIGN] [FREQ]`;
 
 const SYSTEM_PROMPT = `\
 You are a ham radio repeater database assistant. Fill in STATION cards accurately from provided data and web searches. Never rely on training data for frequencies, CTCSS tones, coordinates, or status.
@@ -101,6 +138,15 @@ OUTPUT RULES:
 - Coordinates: signed decimal degrees (e.g., 37.3861, -122.0839) — GAIA GPS compatible; positive = N/E, negative = S/W
 - ◉ = linked/networked repeater — use ◉ if ANY of EchoLink, AllStar, IRLP, WINS, or Broadcastify has a listed node or URL; ★ = standalone (all VOIP fields are NOT LISTED)
 - Only output NO REPEATER DATA — [IDENTIFIER] if after searching you confirm this is an individual operator with no repeater association, or no repeater data exists for the query
+- Output ALL static reference text in the card verbatim — the classification definitions, HT PREFIX CODES table, GAIA WAYPOINT ICONS, and GAIA NAMING FORMAT lines are fixed reference text, not placeholders; copy them exactly as shown
+
+PREFIX SELECTION (for HT CHANNEL NAME and GAIA WAYPOINT NAME):
+- Use the HT PREFIX CODES table to select the correct prefix based on Classification
+- Priority: RC > AR > CT > SK > AX > MR > EM > SA (emergency affiliation takes priority over VoIP)
+- If no emergency classification: use EL if EchoLink node listed; WN if WINS listed; Rpt for standard repeater
+- If AllStar hub node: use hub number as prefix (e.g. [54] for Hub 54697)
+- HT CHANNEL NAME format: [PREFIX] [CALLSIGN] — space-separated, 7 chars max total for CHIRP compatibility
+- GAIA WAYPOINT NAME: follow the GAIA NAMING FORMAT rules at the bottom of the card exactly
 
 STATION CARD:
 ${TEMPLATE}`;
@@ -110,12 +156,19 @@ ${TEMPLATE}`;
 const RB_BASE = 'https://www.repeaterbook.com/repeaters';
 
 async function rbFetch(url) {
-  const r = await fetch(url, {
-    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; eQRA/2.0)' },
-    signal: AbortSignal.timeout(8000),
-  });
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  return r.text();
+  try {
+    const r = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; eQRA/2.0)' },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.text();
+  } catch (err) {
+    if (err.name === 'TimeoutError' || err.name === 'AbortError') {
+      console.warn(`[eQRA timing] rbFetch TIMEOUT (8s): ${url}`);
+    }
+    throw err;
+  }
 }
 
 function stripHtml(html) {
@@ -206,6 +259,25 @@ async function resolveLocationFull(ai, locationText, knownCoords = null) {
   } catch { return null; }
 }
 
+// ── ZIP → lat/lon via US Census Geocoder (P-2 fast-path) ────────────────────
+
+async function geocodeZip(zip) {
+  try {
+    const r = await fetch(`https://api.zippopotam.us/us/${zip}`, {
+      headers: { 'User-Agent': 'eQRA/2.0 (ham radio field card app)' },
+      signal: AbortSignal.timeout(4000),
+    });
+    if (!r.ok) return null;
+    const data = await r.json();
+    const place = data?.places?.[0];
+    if (!place) return null;
+    const lat = parseFloat(place.latitude);
+    const lon = parseFloat(place.longitude);
+    if (isNaN(lat) || isNaN(lon)) return null;
+    return { lat, lon };
+  } catch { return null; }
+}
+
 // ── GPS coordinate parser ─────────────────────────────────────────────────────
 
 function parseCoords(text) {
@@ -262,18 +334,34 @@ async function fetchCoordinatorCsv(url, freq, lat, lon) {
 // ── RB pre-fetch functions ────────────────────────────────────────────────────
 
 async function prefetchCallsign(callsign) {
-  const listHtml = await rbFetch(`${RB_BASE}/callResult.php?call=${encodeURIComponent(callsign)}`);
-  const detailUrls = extractDetailUrls(listHtml);
-  if (!detailUrls.length) return null;
-  const results = await Promise.allSettled(detailUrls.slice(0, 6).map(fetchDetailText));
-  const texts = results.filter(r => r.status === 'fulfilled').map(r => r.value);
-  return texts.length ? texts.join('\n\n---\n\n') : null;
+  console.time(`[eQRA timing] A: callsign prefetch (${callsign})`);
+  try {
+    const listHtml = await rbFetch(`${RB_BASE}/callResult.php?call=${encodeURIComponent(callsign)}`);
+    const detailUrls = extractDetailUrls(listHtml);
+    if (!detailUrls.length) return null;
+    const results = await Promise.allSettled(detailUrls.slice(0, 6).map(fetchDetailText));
+    const texts = results.filter(r => r.status === 'fulfilled').map(r => r.value);
+    return texts.length ? texts.join('\n\n---\n\n') : null;
+  } finally {
+    console.timeEnd(`[eQRA timing] A: callsign prefetch (${callsign})`);
+  }
 }
 
 async function prefetchFreqLocation(ai, freq, zip, rawQuery) {
   const locationText = rawQuery.replace(freq, '').replace(/\s+/g, ' ').trim();
-  const knownCoords = parseCoords(locationText);
+  let knownCoords = parseCoords(locationText);
+
+  // P-2: ZIP fast-path — Census API (~200ms) replaces Gemini geocode for ZIP queries
+  if (!knownCoords && zip) {
+    console.time(`[eQRA timing] A-zip: Census geocode (${zip})`);
+    knownCoords = await geocodeZip(zip);
+    console.timeEnd(`[eQRA timing] A-zip: Census geocode (${zip})`);
+    if (knownCoords) console.log(`[eQRA timing] A-zip: resolved ${zip} → ${knownCoords.lat}, ${knownCoords.lon}`);
+  }
+
+  console.time(`[eQRA timing] A: county-find (${knownCoords ? 'coords' : locationText})`);
   const geo = await resolveLocationFull(ai, locationText, knownCoords);
+  console.timeEnd(`[eQRA timing] A: county-find (${knownCoords ? 'coords' : locationText})`);
   if (!geo) return null;
 
   const freqNorm = parseFloat(freq).toFixed(4);
@@ -282,14 +370,14 @@ async function prefetchFreqLocation(ai, freq, zip, rawQuery) {
     'gi'
   );
 
-  // Fetch all counties in parallel (Change 3)
+  console.time(`[eQRA timing] B: county fetches (${geo.counties.length} counties)`);
   const countyResults = await Promise.allSettled(
     geo.counties.map(({ county, fips }) =>
       rbFetch(`${RB_BASE}/location_search.php?type=county&state_id=${fips}&loc=${county.replace(/ /g, '+')}`)
     )
   );
+  console.timeEnd(`[eQRA timing] B: county fetches (${geo.counties.length} counties)`);
 
-  // Extract all matching detail URLs across counties, deduped by RB ID (Change 4)
   const seen = new Set();
   const detailUrls = [];
   for (const r of countyResults) {
@@ -305,7 +393,6 @@ async function prefetchFreqLocation(ai, freq, zip, rawQuery) {
   }
   const scopeHeader = buildScopeHeader(freq, geo.counties);
 
-  // CSV fallback for FL (FIPS 12) and MN (FIPS 27) when RB has no matches (Change 5)
   if (!detailUrls.length) {
     const stateFips = new Set(geo.counties.map(c => c.fips));
     let csvText = null;
@@ -320,11 +407,26 @@ async function prefetchFreqLocation(ai, freq, zip, rawQuery) {
     return { text: csvText, scopeHeader };
   }
 
-  // Fetch up to 8 detail pages in parallel (Change 4)
+  console.time(`[eQRA timing] C: detail fetches (${Math.min(detailUrls.length, 8)} pages)`);
   const detailResults = await Promise.allSettled(detailUrls.slice(0, 8).map(fetchDetailText));
+  console.timeEnd(`[eQRA timing] C: detail fetches (${Math.min(detailUrls.length, 8)} pages)`);
+
   const texts = detailResults.filter(r => r.status === 'fulfilled').map(r => r.value);
   if (!texts.length) return { text: null, scopeHeader };
   return { text: texts.join('\n\n---\n\n'), scopeHeader };
+}
+
+// ── Gemini result parser ──────────────────────────────────────────────────────
+
+function parseGeminiResult(result) {
+  const parts = result.candidates?.[0]?.content?.parts ?? [];
+  const text = parts.filter(p => p.text && !p.thought).map(p => p.text).join('');
+  let raw = (text || result.text || '')
+    .replace(/\[[^\]]{0,100}\]/g, '')
+    .replace(/[¹²³⁴⁵⁶⁷⁸⁹⁰`]/g, '');
+  const cardStart = raw.search(/[★◉]|NO REPEATER DATA/);
+  if (cardStart > 0) raw = raw.slice(cardStart);
+  return raw.split('===NEW STATION===').map(s => s.trim()).filter(s => s.length > 0);
 }
 
 // ── Friendly error messages ───────────────────────────────────────────────────
@@ -374,6 +476,7 @@ export default async function handler(req, res) {
     return res.status(429).json({ error: 'Daily search limit reached — only 1 free search per day is offered due to AI costs. Resets at midnight. 73!' });
   }
 
+  console.time('[eQRA timing] E: total handler');
   try {
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
@@ -394,6 +497,8 @@ export default async function handler(req, res) {
       : `Find the ham radio repeater station(s) for this query and fill in the station card: "${actualQuery}"`;
 
     let result;
+    const geminiStart = Date.now();
+    console.time('[eQRA timing] D: Gemini generateContent');
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
         result = await ai.models.generateContent({
@@ -402,6 +507,7 @@ export default async function handler(req, res) {
           config: {
             systemInstruction: SYSTEM_PROMPT,
             tools: [{ googleSearch: {} }, { urlContext: {} }],
+            thinkingConfig: { thinkingBudget: 0 },
           },
         });
         break;
@@ -410,28 +516,35 @@ export default async function handler(req, res) {
           (err?.message ?? '').includes('fetch failed') ||
           (err?.message ?? '').includes('UND_ERR_SOCKET');
         if (attempt === 2 || (err?.status !== 503 && !isNetworkErr)) throw err;
+        await new Promise(r => setTimeout(r, 2000));
       }
     }
+    console.timeEnd('[eQRA timing] D: Gemini generateContent');
 
-    // Extract final text parts, filtering out thinking/reasoning parts
-    const candidateParts = result.candidates?.[0]?.content?.parts ?? [];
-    const textContent = candidateParts
-      .filter(part => part.text && !part.thought)
-      .map(part => part.text)
-      .join('');
+    const geminiMs = Date.now() - geminiStart;
+    let stations = parseGeminiResult(result);
 
-    let raw = (textContent || result.text || '')
-      .replace(/\[[^\]]{0,100}\]/g, '')
-      .replace(/[¹²³⁴⁵⁶⁷⁸⁹⁰`]/g, '');
-
-    // Fix A: strip any preamble/reasoning before the first card or NO REPEATER DATA line
-    const cardStart = raw.search(/[★◉]|NO REPEATER DATA/);
-    if (cardStart > 0) raw = raw.slice(cardStart);
-
-    const stations = raw
-      .split('===NEW STATION===')
-      .map(s => s.trim())
-      .filter(s => s.length > 0);
+    // Silent failure guard: sub-2s response + no cards + RB data was provided = Gemini bailed silently
+    if (stations.length === 0 && rbData && geminiMs < 2000) {
+      console.warn(`[eQRA] Silent failure detected (${geminiMs}ms, RB data present) — retrying`);
+      console.time('[eQRA timing] D-retry: Gemini generateContent');
+      try {
+        result = await ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: userMessage,
+          config: {
+            systemInstruction: SYSTEM_PROMPT,
+            tools: [{ googleSearch: {} }, { urlContext: {} }],
+            thinkingConfig: { thinkingBudget: 0 },
+          },
+        });
+        stations = parseGeminiResult(result);
+      } catch (retryErr) {
+        console.warn('[eQRA] Silent failure retry failed:', retryErr.message);
+      } finally {
+        console.timeEnd('[eQRA timing] D-retry: Gemini generateContent');
+      }
+    }
 
     if (stations.length === 0) {
       let msg = 'No repeater data found — try a callsign, frequency, zip code, or area name.';
@@ -445,9 +558,11 @@ export default async function handler(req, res) {
     // Prepend scope header to first card (Change 6) — done in Node.js to avoid Gemini output-processing issues
     if (scopeHeader) stations[0] = scopeHeader + '\n\n' + stations[0];
 
+    console.timeEnd('[eQRA timing] E: total handler');
     return res.status(200).json({ stations, bypassed: isPrivileged, dailyLimit: DAILY_LIMIT_VAL });
 
   } catch (err) {
+    console.timeEnd('[eQRA timing] E: total handler');
     console.error('[eQRA lookup error]', err);
     const { status, message } = friendlyError(err);
     return res.status(status).json({ error: message });
