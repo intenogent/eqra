@@ -91,7 +91,7 @@
 
       // nothing is ever disabled — bypass passphrase must reach the server; server enforces the limit
       if (left === 0) {
-        text.textContent = 'Daily limit reached — prefix your search with your access code to continue. 73!';
+        text.textContent = 'Daily limit reached — resets at midnight. 73!';
         banner.classList.add('rate-banner--empty');
       } else {
         text.textContent = `Limited free access — ${DAILY_LIMIT} lookup${DAILY_LIMIT === 1 ? '' : 's'} per day`;
