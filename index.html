@@ -89,19 +89,18 @@
       const btn = document.getElementById('submit-btn');
       const input = document.getElementById('query-input');
 
+      // input is intentionally never disabled — bypass passphrase must be typeable at limit
       if (left === 0) {
         text.textContent = 'Daily limit reached — resets at midnight. 73!';
         banner.classList.add('rate-banner--empty');
         btn.classList.add('btn--limit');
         btn.textContent = 'Limit Reached';
         btn.disabled = true;
-        input.disabled = true;
       } else {
         text.textContent = `Limited free access — ${DAILY_LIMIT} lookup${DAILY_LIMIT === 1 ? '' : 's'} per day`;
         banner.classList.remove('rate-banner--empty');
         btn.classList.remove('btn--limit');
         btn.textContent = 'Look Up Station';
-        input.disabled = false;
       }
     }
 
@@ -160,7 +159,6 @@
 
       const query = input.value.trim();
       if (!query) return;
-      if (remaining() === 0) return;
 
       // Reset UI state
       clearTimeout(timeoutHandle);
