@@ -441,7 +441,7 @@ function friendlyError(err) {
     return { status: 401, message: 'API configuration error — please contact the administrator.' };
   }
   if (status === 503 || msg.includes('503')) {
-    return { status: 503, message: 'AI service temporarily unavailable — please try again in a moment.' };
+    return { status: 503, message: "QRX — Google's AI servers are overloaded right now. This is on Google's end, not eQRA. Please try again in a few minutes." };
   }
   if (msg.includes('UND_ERR_SOCKET') || msg.includes('fetch failed') || msg.includes('Assertion failed')) {
     return { status: 503, message: 'Network error — please try again.' };
@@ -507,7 +507,6 @@ export default async function handler(req, res) {
           config: {
             systemInstruction: SYSTEM_PROMPT,
             tools: [{ googleSearch: {} }, { urlContext: {} }],
-            thinkingConfig: { thinkingBudget: 0 },
           },
         });
         break;
@@ -535,7 +534,6 @@ export default async function handler(req, res) {
           config: {
             systemInstruction: SYSTEM_PROMPT,
             tools: [{ googleSearch: {} }, { urlContext: {} }],
-            thinkingConfig: { thinkingBudget: 0 },
           },
         });
         stations = parseGeminiResult(result);
